@@ -166,13 +166,14 @@
     <option value="figure8">Figure-8 Orbit</option>
     <option value="solar">Solar System</option>
     <option value="chaos">Chaos (8 Bodies)</option>
+    <option value="earthmoon">Sun, Earth &amp; Moon</option>
   </select>
 </div>
 
 <div id="main">
   <div id="canvas-wrap">
     <canvas id="canvas"></canvas>
-    <div id="hint">Click to place body &middot; Drag to set velocity &middot; Right-click to delete</div>
+    <div id="hint">Click to place &middot; Drag to set velocity &middot; Right-drag to pan &middot; Scroll to zoom &middot; Middle-click to fit</div>
   </div>
 
   <div id="sidebar">
@@ -244,6 +245,8 @@ let simTime      = 0;
 let trailTick    = 0;
 let stars        = [];
 let drag         = null; // { type:'new'|'body', body?, sx, sy, cx, cy }
+let panDrag      = null; // { sx, sy, startPanX, startPanY, moved }
+let camera       = { panX: 0, panY: 0, zoom: 1 };
 
 // ═══════════════════════════════════════════════════════════
 //  Canvas setup
@@ -385,11 +388,12 @@ function toggleSim() { running ? pauseSim() : startSim(); }
 function render() {
   const W = canvas.width, H = canvas.height;
 
-  // Background
+  // Background (screen space)
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#06060f';
   ctx.fillRect(0, 0, W, H);
 
-  // Stars
+  // Stars (fixed to screen — no camera transform)
   ctx.save();
   for (const s of stars) {
     ctx.globalAlpha = s.a;
@@ -399,6 +403,9 @@ function render() {
     ctx.fill();
   }
   ctx.restore();
+
+  // World-space objects — apply camera transform
+  ctx.setTransform(camera.zoom, 0, 0, camera.zoom, camera.panX, camera.panY);
 
   // Trails
   ctx.save();
@@ -412,6 +419,12 @@ function render() {
 
   // Velocity arrow while dragging to place new body
   if (drag && drag.type === 'new') renderArrow();
+
+  // Restore to screen space
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // Minimap (screen space)
+  renderMinimap();
 }
 
 function renderTrail(b) {
@@ -538,13 +551,118 @@ function darken(hex, f) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  Mouse / touch events
+//  Minimap
 // ═══════════════════════════════════════════════════════════
+const MM = { w: 168, h: 116, margin: 12, pad: 8, radius: 7 };
+let mmState = null; // cached each frame for click hit-testing
+
+function mmRoundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);  ctx.arcTo(x + w, y,     x + w, y + r,     r);
+  ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);  ctx.arcTo(x,     y + h, x,     y + h - r, r);
+  ctx.lineTo(x, y + r);      ctx.arcTo(x,     y,     x + r, y,         r);
+  ctx.closePath();
+}
+
+function renderMinimap() {
+  const W = canvas.width, H = canvas.height;
+  const mx = W - MM.w - MM.margin;
+  const my = H - MM.h - MM.margin;
+
+  // World bounds: union of all body positions and current viewport
+  const vpL = (0 - camera.panX) / camera.zoom, vpR = (W - camera.panX) / camera.zoom;
+  const vpT = (0 - camera.panY) / camera.zoom, vpB = (H - camera.panY) / camera.zoom;
+
+  let wL = vpL, wR = vpR, wT = vpT, wB = vpB;
+  for (const b of bodies) {
+    wL = Math.min(wL, b.x); wR = Math.max(wR, b.x);
+    wT = Math.min(wT, b.y); wB = Math.max(wB, b.y);
+  }
+  const ex = (wR - wL) * 0.06, ey = (wB - wT) * 0.06;
+  wL -= ex; wR += ex; wT -= ey; wB += ey;
+
+  const rangeX = wR - wL || 1, rangeY = wB - wT || 1;
+  const innerW = MM.w - MM.pad * 2, innerH = MM.h - MM.pad * 2;
+  const scl    = Math.min(innerW / rangeX, innerH / rangeY);
+
+  const wCX = (wL + wR) / 2, wCY = (wT + wB) / 2;
+  const ocx  = mx + MM.w / 2,  ocy = my + MM.h / 2;
+
+  const toSX = wx => ocx + (wx - wCX) * scl;
+  const toSY = wy => ocy + (wy - wCY) * scl;
+
+  mmState = { mx, my, wCX, wCY, scl, ocx, ocy };
+
+  ctx.save();
+
+  // Background panel
+  ctx.fillStyle   = 'rgba(4,4,18,0.88)';
+  ctx.strokeStyle = '#252742';
+  ctx.lineWidth   = 1;
+  mmRoundRect(mx, my, MM.w, MM.h, MM.radius);
+  ctx.fill();
+  ctx.stroke();
+
+  // Clip content to panel interior
+  mmRoundRect(mx + 1, my + 1, MM.w - 2, MM.h - 2, MM.radius - 1);
+  ctx.clip();
+
+  // Viewport rectangle
+  const vx1 = toSX(vpL), vy1 = toSY(vpT);
+  const vx2 = toSX(vpR), vy2 = toSY(vpB);
+  ctx.fillStyle   = 'rgba(74,158,255,0.07)';
+  ctx.strokeStyle = 'rgba(74,158,255,0.6)';
+  ctx.lineWidth   = 1;
+  ctx.fillRect(vx1, vy1, vx2 - vx1, vy2 - vy1);
+  ctx.strokeRect(vx1, vy1, vx2 - vx1, vy2 - vy1);
+
+  // Bodies
+  for (const b of bodies) {
+    const bx = toSX(b.x), by = toSY(b.y);
+    const r  = Math.max(1.5, Math.min(b.radius * scl * 0.9, 5));
+    // Subtle glow
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle   = b.color;
+    ctx.beginPath();
+    ctx.arc(bx, by, r * 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Solid dot
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle   = b.color;
+    ctx.beginPath();
+    ctx.arc(bx, by, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // "MINIMAP" label
+  ctx.globalAlpha  = 0.32;
+  ctx.fillStyle    = '#c0cce0';
+  ctx.font         = '8px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('MINIMAP', mx + 6, my + 4);
+
+  ctx.restore();
+}
+
+
 function canvasXY(e) {
   const r = canvas.getBoundingClientRect();
+  const sx = (e.clientX - r.left) * (canvas.width  / r.width);
+  const sy = (e.clientY - r.top)  * (canvas.height / r.height);
   return {
-    x: (e.clientX - r.left) * (canvas.width  / r.width),
-    y: (e.clientY - r.top)  * (canvas.height / r.height)
+    x: (sx - camera.panX) / camera.zoom,
+    y: (sy - camera.panY) / camera.zoom
+  };
+}
+
+function screenCoords(e) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    sx: (e.clientX - r.left) * (canvas.width  / r.width),
+    sy: (e.clientY - r.top)  * (canvas.height / r.height)
   };
 }
 
@@ -558,7 +676,30 @@ function bodyAt(x, y) {
 }
 
 canvas.addEventListener('mousedown', e => {
+  if (e.button === 1) {   // middle click → fit all
+    e.preventDefault();
+    fitAll();
+    return;
+  }
+  if (e.button === 2) {   // right click → start pan
+    const { sx, sy } = screenCoords(e);
+    panDrag = { sx, sy, startPanX: camera.panX, startPanY: camera.panY, moved: false };
+    canvas.classList.add('grabbing');
+    e.preventDefault();
+    return;
+  }
   if (e.button !== 0) return;
+  // Minimap click → pan camera to that world position
+  const { sx, sy } = screenCoords(e);
+  if (mmState && sx >= mmState.mx && sx <= mmState.mx + MM.w &&
+                 sy >= mmState.my && sy <= mmState.my + MM.h) {
+    const wx = mmState.wCX + (sx - mmState.ocx) / mmState.scl;
+    const wy = mmState.wCY + (sy - mmState.ocy) / mmState.scl;
+    camera.panX = canvas.width  / 2 - wx * camera.zoom;
+    camera.panY = canvas.height / 2 - wy * camera.zoom;
+    if (!running) render();
+    return;
+  }
   const { x, y } = canvasXY(e);
   const hit = bodyAt(x, y);
   if (hit) {
@@ -574,6 +715,15 @@ canvas.addEventListener('mousedown', e => {
 });
 
 canvas.addEventListener('mousemove', e => {
+  if (panDrag) {
+    const { sx, sy } = screenCoords(e);
+    const dx = sx - panDrag.sx, dy = sy - panDrag.sy;
+    if (Math.hypot(dx, dy) > 3) panDrag.moved = true;
+    camera.panX = panDrag.startPanX + dx;
+    camera.panY = panDrag.startPanY + dy;
+    if (!running) render();
+    return;
+  }
   if (!drag) return;
   const { x, y } = canvasXY(e);
   drag.cx = x; drag.cy = y;
@@ -587,11 +737,20 @@ canvas.addEventListener('mousemove', e => {
 });
 
 canvas.addEventListener('mouseup', e => {
+  if (e.button === 2) {
+    if (panDrag && !panDrag.moved) {
+      const { x, y } = canvasXY(e);
+      const b = bodyAt(x, y);
+      if (b) deleteBody(b);
+    }
+    panDrag = null;
+    canvas.classList.remove('grabbing');
+    return;
+  }
   if (!drag) return;
   const { x, y } = canvasXY(e);
   if (drag.type === 'new') {
     const dx  = x - drag.sx, dy = y - drag.sy;
-    const len = Math.hypot(dx, dy);
     const b   = new Body(drag.sx, drag.sy, dx * VEL_SCALE, dy * VEL_SCALE, 100);
     bodies.push(b);
     selectBody(b);
@@ -602,15 +761,23 @@ canvas.addEventListener('mouseup', e => {
   canvas.classList.remove('grabbing');
 });
 
-canvas.addEventListener('contextmenu', e => {
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+canvas.addEventListener('wheel', e => {
   e.preventDefault();
-  const { x, y } = canvasXY(e);
-  const b = bodyAt(x, y);
-  if (b) deleteBody(b);
-});
+  const { sx, sy } = screenCoords(e);
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  const wx = (sx - camera.panX) / camera.zoom;
+  const wy = (sy - camera.panY) / camera.zoom;
+  camera.zoom = Math.max(0.02, Math.min(100, camera.zoom * factor));
+  camera.panX = sx - wx * camera.zoom;
+  camera.panY = sy - wy * camera.zoom;
+  if (!running) render();
+}, { passive: false });
 
 canvas.addEventListener('mouseleave', () => {
   if (drag && drag.type === 'new') { drag = null; if (!running) render(); }
+  if (panDrag) panDrag = null;
   canvas.classList.remove('grabbing');
 });
 
@@ -634,6 +801,7 @@ function selectBody(b) {
 function clearAll() {
   pauseSim();
   bodies = []; selected = null; simTime = 0; trailTick = 0;
+  camera.panX = 0; camera.panY = 0; camera.zoom = 1;
   updateBodyList(); updateEditor(); updateStats(); render();
 }
 
@@ -764,6 +932,7 @@ function loadPreset(name) {
   pauseSim();
   bodies = []; selected = null; simTime = 0; trailTick = 0;
   _pIdx = 0;
+  camera.panX = 0; camera.panY = 0; camera.zoom = 1;
   const cx = canvas.width / 2, cy = canvas.height / 2;
 
   switch (name) {
@@ -861,6 +1030,32 @@ function loadPreset(name) {
       break;
     }
 
+    case 'earthmoon': {
+      // Sun + Earth in circular orbit + Moon orbiting Earth
+      const Ms = 2000, Me = 2, Mm = 0.025;
+      const rE = 135;   // Earth–Sun distance (pixels)
+      const rM = 22;    // Moon–Earth distance (pixels)
+
+      const sun = new Body(cx, cy, 0, 0, Ms);
+      sun.color = '#ffd93d'; sun.label = 'Sun';
+
+      // Earth at (cx + rE, cy), orbiting counterclockwise
+      const vE = Math.sqrt(G * (Ms + Me) / rE);
+      const earth = new Body(cx + rE, cy, 0, vE, Me);
+      earth.color = '#4d96ff'; earth.label = 'Earth';
+
+      // Moon at (cx + rE + rM, cy), orbiting Earth counterclockwise
+      const vMrel = Math.sqrt(G * (Me + Mm) / rM);
+      const moon = new Body(cx + rE + rM, cy, 0, vE + vMrel, Mm);
+      moon.color = '#c8c8c8'; moon.label = 'Moon';
+
+      // Counter-kick Sun so total momentum = 0
+      sun.vy = -(Me * vE + Mm * (vE + vMrel)) / Ms;
+
+      bodies.push(sun, earth, moon);
+      break;
+    }
+
     case 'chaos': {
       for (let i = 0; i < 8; i++) {
         const ang  = (i / 8) * Math.PI * 2;
@@ -878,6 +1073,30 @@ function loadPreset(name) {
   }
 
   updateBodyList(); updateEditor(); updateStats(); render(); updatePlayBtn();
+}
+
+// ═══════════════════════════════════════════════════════════
+//  Camera helpers
+// ═══════════════════════════════════════════════════════════
+function fitAll() {
+  const W = canvas.width, H = canvas.height;
+  if (bodies.length === 0) {
+    camera.panX = 0; camera.panY = 0; camera.zoom = 1;
+    if (!running) render();
+    return;
+  }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const b of bodies) {
+    const pad = b.radius * 5; // include glow footprint
+    minX = Math.min(minX, b.x - pad); maxX = Math.max(maxX, b.x + pad);
+    minY = Math.min(minY, b.y - pad); maxY = Math.max(maxY, b.y + pad);
+  }
+  const margin = 48;
+  const rangeX = maxX - minX || 1, rangeY = maxY - minY || 1;
+  camera.zoom = Math.min((W - margin * 2) / rangeX, (H - margin * 2) / rangeY, 20);
+  camera.panX = W / 2 - ((minX + maxX) / 2) * camera.zoom;
+  camera.panY = H / 2 - ((minY + maxY) / 2) * camera.zoom;
+  if (!running) render();
 }
 
 // ═══════════════════════════════════════════════════════════
