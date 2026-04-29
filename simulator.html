@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>N-Body Gravity Simulator</title>
+<title>Gravity Playground</title>
 <style>
   :root {
     --bg:     #06060f;
@@ -1102,7 +1102,7 @@ function fitAll() {
 // ═══════════════════════════════════════════════════════════
 //  Bootstrap
 // ═══════════════════════════════════════════════════════════
-window.addEventListener('load', resize);
+window.addEventListener('load', () => { resize(); loadPreset('solar'); });
 </script>
 </body>
 </html>
