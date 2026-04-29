@@ -198,13 +198,13 @@
   <!-- ── Chart area ── -->
   <div id="main">
     <div id="chart-controls">
-      <span class="ctrl-label">Range:</span>
+      <span class="ctrl-label">Forecast:</span>
       <div class="ctrl-group">
-        <button class="ctrl-btn active" onclick="setRange('1y',this)">1Y</button>
-        <button class="ctrl-btn" onclick="setRange('3y',this)">3Y</button>
-        <button class="ctrl-btn" onclick="setRange('5y',this)">5Y</button>
-        <button class="ctrl-btn" onclick="setRange('10y',this)">10Y</button>
-        <button class="ctrl-btn" onclick="setRange('all',this)">All</button>
+        <button class="ctrl-btn active" onclick="setRange('1y',this)">+1Y</button>
+        <button class="ctrl-btn" onclick="setRange('3y',this)">+3Y</button>
+        <button class="ctrl-btn" onclick="setRange('5y',this)">+5Y</button>
+        <button class="ctrl-btn" onclick="setRange('10y',this)">+10Y</button>
+        <button class="ctrl-btn" onclick="setRange('all',this)">+30Y</button>
       </div>
       <div class="toggles">
         <label class="toggle-item">
@@ -463,18 +463,14 @@ function kpLabel(kp) {
 
 // ─── Chart ────────────────────────────────────────────────────────────────────
 function getRange() {
-  const now = new Date(), end = new Date(now);
-  let start;
-  if (chartRange === 'all') {
-    if (!accounts.length) { start = new Date(now.getFullYear() - 1, now.getMonth(), 1); }
-    else {
-      const earliest = accounts.reduce((m,a) => a.startDate < m ? a.startDate : m, accounts[0].startDate);
-      start = new Date(earliest + 'T00:00:00');
-    }
-  } else {
-    const y = parseInt(chartRange);
-    start = new Date(now.getFullYear() - y, now.getMonth(), now.getDate());
-  }
+  const now = new Date();
+  // Always start from the earliest account's start date so past data is visible
+  const start = accounts.length
+    ? new Date(accounts.reduce((m,a) => a.startDate < m ? a.startDate : m, accounts[0].startDate) + 'T00:00:00')
+    : new Date(now);
+  // End N years *forward* from today — finance tracker projects into the future
+  const y = chartRange === 'all' ? 30 : parseInt(chartRange);
+  const end = new Date(now.getFullYear() + y, now.getMonth(), now.getDate());
   return { start, end };
 }
 
@@ -508,6 +504,11 @@ function redraw() {
     const project = dates.map(d => { const v = calcValue(acc,d,false); return v!=null ? +v.toFixed(2) : null; });
     const actual  = dates.map(d => { const v = calcValue(acc,d,true);  return v!=null ? +v.toFixed(2) : null; });
 
+    // Mark keypoint dates with a visible dot on the actual line
+    const kpDateSet = new Set(acc.keypoints.map(k => k.date));
+    const kpRadii   = dates.map(d => kpDateSet.has(d) ? 5 : 0);
+    const kpBgColor = dates.map(d => kpDateSet.has(d) ? '#ffffff' : 'transparent');
+
     if (showP) datasets.push({
       label: acc.name + ' (Projected)',
       data: project,
@@ -527,33 +528,13 @@ function redraw() {
       backgroundColor: hexRgba(acc.color, 0.07),
       fill: true,
       borderWidth: 2,
-      pointRadius: 0,
+      pointRadius: kpRadii,
+      pointBackgroundColor: kpBgColor,
+      pointBorderColor: acc.color,
+      pointBorderWidth: 2,
       tension: 0.35,
       spanGaps: true,
     });
-  }
-
-  // Add keypoint annotation markers as scatter overlay
-  for (const acc of accounts) {
-    const kpPoints = acc.keypoints
-      .filter(k => {
-        const d = k.date;
-        return d >= start.toISOString().slice(0,10) && d <= end.toISOString().slice(0,10);
-      })
-      .map(k => ({ x: k.date, y: calcValue(acc, k.date, true) || 0 }));
-
-    if (kpPoints.length) {
-      datasets.push({
-        type: 'scatter',
-        label: acc.name + ' events',
-        data: kpPoints,
-        borderColor: acc.color,
-        backgroundColor: acc.color,
-        pointRadius: 5,
-        pointHoverRadius: 7,
-        showLine: false,
-      });
-    }
   }
 
   const ctx = document.getElementById('chart').getContext('2d');
