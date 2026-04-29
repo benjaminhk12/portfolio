@@ -630,11 +630,15 @@ function redraw() {
                   if (kp.date === date) notes.push(`  ⬥ ${acc.name}: ${kpLabel(kp)}`);
                 }
               }
-              // Total of main (non-counterfactual) lines
+              // Total: investments add, loans subtract (net worth)
               const mainItems = items.filter(i => !i.dataset.label.includes(' — if no'));
               if (mainItems.length > 1) {
-                const total = mainItems.reduce((s, i) => s + (i.raw || 0), 0);
-                notes.push('', `  Total: ${fmt(total)}`);
+                const total = mainItems.reduce((s, i) => {
+                  const acc = accounts.find(a => a.name === i.dataset.label);
+                  const sign = acc && acc.type === 'loan' ? -1 : 1;
+                  return s + sign * (i.raw || 0);
+                }, 0);
+                notes.push('', `  Net: ${fmt(total)}`);
               }
               return notes.length ? ['', ...notes] : [];
             }
