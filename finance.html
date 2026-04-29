@@ -258,17 +258,28 @@
         </select>
       </div>
     </div>
-    <div id="loan-extra-fields">
-      <div class="form-grid-2">
-        <div class="form-row">
-          <label>Loan Term (years)</label>
-          <input type="number" id="f-term" placeholder="30" min="1" step="1">
-        </div>
-        <div class="form-row">
-          <label>Monthly Payment ($)</label>
-          <input type="number" id="f-payment" placeholder="auto-calc" min="0" step="0.01">
-          <div class="hint">Leave blank to auto-calculate</div>
-        </div>
+    <div id="loan-only-fields">
+      <div class="form-row">
+        <label>Loan Term (years)</label>
+        <input type="number" id="f-term" placeholder="30" min="1" step="1">
+      </div>
+    </div>
+    <div class="form-grid-2">
+      <div class="form-row">
+        <label id="f-payment-label">Regular Repayment ($)</label>
+        <input type="number" id="f-payment" placeholder="auto-calc" min="0" step="0.01">
+        <div class="hint" id="f-payment-hint">Leave blank to auto-calculate</div>
+      </div>
+      <div class="form-row">
+        <label>Frequency</label>
+        <select id="f-payment-freq">
+          <option value="">None</option>
+          <option value="52">Weekly</option>
+          <option value="26">Fortnightly</option>
+          <option value="12" selected>Monthly</option>
+          <option value="4">Quarterly</option>
+          <option value="1">Annually</option>
+        </select>
       </div>
     </div>
     <div class="form-row">
@@ -345,40 +356,55 @@ function fmtDate(d) {
 }
 
 // ─── Financial calculations ───────────────────────────────────────────────────
-function compoundValue(principal, annualRate, compound, fromDate, toDate, type, payment, termYears) {
+function compoundValue(principal, annualRate, compound, fromDate, toDate, type, payment, termYears, paymentFreq) {
   const MS_YEAR = 365.25 * 24 * 3600 * 1000;
   const years = (toDate - fromDate) / MS_YEAR;
   if (years < 0) return principal;
   if (years === 0) return principal;
 
   if (type === 'investment') {
-    if (compound === 'continuous') return principal * Math.exp(annualRate * years);
-    const n = compound === 'monthly' ? 12 : compound === 'quarterly' ? 4 : 1;
-    return principal * Math.pow(1 + annualRate / n, n * years);
+    // Base compound growth on principal
+    let base;
+    if (compound === 'continuous') {
+      base = principal * Math.exp(annualRate * years);
+    } else {
+      const n = compound === 'monthly' ? 12 : compound === 'quarterly' ? 4 : 1;
+      base = principal * Math.pow(1 + annualRate / n, n * years);
+    }
+    // Future value of regular contributions (ordinary annuity)
+    if (payment && paymentFreq) {
+      const r = annualRate / paymentFreq;
+      const nPeriods = years * paymentFreq;
+      base += r === 0
+        ? payment * nPeriods
+        : payment * (Math.pow(1 + r, nPeriods) - 1) / r;
+    }
+    return base;
   }
 
-  // Loan – amortising
-  const r = annualRate / 12;
-  const months = years * 12;
+  // Loan – amortising with payment frequency
+  const freq = paymentFreq || 12;
+  const r = annualRate / freq;
+  const nPeriods = years * freq;
+  const N = (termYears || 30) * freq;
   if (r === 0) {
-    const N = (termYears || 30) * 12;
     const pmt = payment || principal / N;
-    return Math.max(0, principal - pmt * months);
+    return Math.max(0, principal - pmt * nPeriods);
   }
-  const N = (termYears || 30) * 12;
   const pmt = payment || (principal * r * Math.pow(1+r, N)) / (Math.pow(1+r, N) - 1);
-  const balance = principal * Math.pow(1+r, months) - pmt * (Math.pow(1+r, months) - 1) / r;
+  const balance = principal * Math.pow(1+r, nPeriods) - pmt * (Math.pow(1+r, nPeriods) - 1) / r;
   return Math.max(0, balance);
 }
 
-// Calculate value at dateStr, optionally applying keypoints
 function calcValue(acc, dateStr, withKeypoints) {
   const accStart = new Date(acc.startDate + 'T00:00:00');
   const target   = new Date(dateStr + 'T00:00:00');
   if (target < accStart) return null;
 
+  const pf = acc.paymentFreq || null;
+
   if (!withKeypoints) {
-    return compoundValue(acc.principal, acc.rate/100, acc.compound, accStart, target, acc.type, acc.payment, acc.term);
+    return compoundValue(acc.principal, acc.rate/100, acc.compound, accStart, target, acc.type, acc.payment, acc.term, pf);
   }
 
   // Replay segments defined by keypoints
@@ -391,7 +417,7 @@ function calcValue(acc, dateStr, withKeypoints) {
   for (const kp of kps) {
     const kpDate = new Date(kp.date + 'T00:00:00');
     if (kpDate <= segStart) continue;
-    const valAtKp = compoundValue(P, r, cpd, segStart, kpDate, acc.type, acc.payment, acc.term);
+    const valAtKp = compoundValue(P, r, cpd, segStart, kpDate, acc.type, acc.payment, acc.term, pf);
     if (kp.type === 'rate_change') {
       P = valAtKp; r = kp.value / 100; segStart = kpDate;
     } else if (kp.type === 'extra_payment') {
@@ -401,7 +427,7 @@ function calcValue(acc, dateStr, withKeypoints) {
     }
   }
 
-  return compoundValue(P, r, cpd, segStart, target, acc.type, acc.payment, acc.term);
+  return compoundValue(P, r, cpd, segStart, target, acc.type, acc.payment, acc.term, pf);
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -440,7 +466,7 @@ function renderSidebar() {
         <div class="ai-meta">
           <span>From ${fmtDate(acc.startDate)}</span>
           <span>${acc.rate}% p.a.</span>
-          <span>${acc.compound}</span>
+          ${acc.payment && acc.paymentFreq ? `<span>${fmt(acc.payment)} ${freqLabel(acc.paymentFreq)}</span>` : ''}
         </div>
         <div class="ai-val ${acc.type}">${fmt(val)}</div>
         ${kpHtml}
@@ -451,6 +477,10 @@ function renderSidebar() {
         </div>
       </div>`;
   }).join('');
+}
+
+function freqLabel(freq) {
+  return freq == 52 ? '/wk' : freq == 26 ? '/fn' : freq == 12 ? '/mo' : freq == 4 ? '/qtr' : '/yr';
 }
 
 function kpLabel(kp) {
@@ -594,6 +624,7 @@ function openAddAccount() {
   document.getElementById('f-compound').value = 'monthly';
   document.getElementById('f-term').value = '';
   document.getElementById('f-payment').value = '';
+  document.getElementById('f-payment-freq').value = '12';
   document.getElementById('f-color').value = PALETTE[accounts.length % PALETTE.length];
   selectType('investment', document.querySelector('.type-tab[data-type="investment"]'));
   openModal('account-modal');
@@ -611,29 +642,31 @@ function editAccount(id) {
   document.getElementById('f-compound').value = acc.compound;
   document.getElementById('f-term').value = acc.term || '';
   document.getElementById('f-payment').value = acc.payment || '';
+  document.getElementById('f-payment-freq').value = acc.paymentFreq || '';
   document.getElementById('f-color').value = acc.color;
   selectType(acc.type, document.querySelector(`.type-tab[data-type="${acc.type}"]`));
   openModal('account-modal');
 }
 
 function saveAccount() {
-  const name      = document.getElementById('f-name').value.trim();
-  const principal = parseFloat(document.getElementById('f-principal').value);
-  const startDate = document.getElementById('f-startdate').value;
-  const rate      = parseFloat(document.getElementById('f-rate').value);
-  const compound  = document.getElementById('f-compound').value;
-  const term      = parseFloat(document.getElementById('f-term').value)    || null;
-  const payment   = parseFloat(document.getElementById('f-payment').value) || null;
-  const color     = document.getElementById('f-color').value;
+  const name        = document.getElementById('f-name').value.trim();
+  const principal   = parseFloat(document.getElementById('f-principal').value);
+  const startDate   = document.getElementById('f-startdate').value;
+  const rate        = parseFloat(document.getElementById('f-rate').value);
+  const compound    = document.getElementById('f-compound').value;
+  const term        = parseFloat(document.getElementById('f-term').value)    || null;
+  const payment     = parseFloat(document.getElementById('f-payment').value) || null;
+  const paymentFreq = parseInt(document.getElementById('f-payment-freq').value) || null;
+  const color       = document.getElementById('f-color').value;
 
   if (!name || isNaN(principal) || !startDate || isNaN(rate)) {
     alert('Please fill in Name, Value, Start Date, and Rate.'); return;
   }
 
   if (editingId) {
-    Object.assign(accounts.find(a => a.id === editingId), { name, principal, startDate, rate, compound, term, payment, color, type: editingType });
+    Object.assign(accounts.find(a => a.id === editingId), { name, principal, startDate, rate, compound, term, payment, paymentFreq, color, type: editingType });
   } else {
-    accounts.push({ id: uid(), name, type: editingType, principal, startDate, rate, compound, term, payment, color, keypoints: [] });
+    accounts.push({ id: uid(), name, type: editingType, principal, startDate, rate, compound, term, payment, paymentFreq, color, keypoints: [] });
   }
 
   save(); closeModal('account-modal'); renderSidebar(); redraw();
@@ -649,8 +682,11 @@ function selectType(type, btn) {
   editingType = type;
   document.querySelectorAll('.type-tab').forEach(t => t.classList.remove('active'));
   if (btn) btn.classList.add('active');
-  document.getElementById('loan-extra-fields').style.display = type === 'loan' ? '' : 'none';
-  document.getElementById('f-principal-label').textContent   = type === 'loan' ? 'Loan Amount ($)' : 'Starting Value ($)';
+  document.getElementById('loan-only-fields').style.display        = type === 'loan' ? '' : 'none';
+  document.getElementById('f-principal-label').textContent         = type === 'loan' ? 'Loan Amount ($)' : 'Starting Value ($)';
+  document.getElementById('f-payment-label').textContent           = type === 'loan' ? 'Regular Repayment ($)' : 'Regular Contribution ($)';
+  document.getElementById('f-payment-hint').textContent            = type === 'loan' ? 'Leave blank to auto-calculate' : 'Leave blank for no contributions';
+  document.getElementById('f-payment').placeholder                 = type === 'loan' ? 'auto-calc' : '0.00';
 }
 
 // ─── Keypoint modal ───────────────────────────────────────────────────────────
