@@ -301,6 +301,7 @@
       <label>Event Type</label>
       <select id="kp-type" onchange="onKpTypeChange()">
         <option value="rate_change">Rate Change</option>
+        <option value="payment_change">Payment Change</option>
         <option value="extra_payment">Extra Payment / Withdrawal</option>
         <option value="lump_sum">Lump Sum Deposit</option>
         <option value="note">Note / Milestone</option>
@@ -309,6 +310,19 @@
     <div id="kp-value-row" class="form-row">
       <label id="kp-value-label">New Rate (% p.a.)</label>
       <input type="number" id="kp-value" placeholder="0" step="0.01">
+    </div>
+    <div id="kp-payment-mode-row" class="form-row" style="display:none">
+      <label>Repayment after rate change</label>
+      <select id="kp-payment-mode" onchange="onKpPaymentModeChange()">
+        <option value="auto">Recalculate for remaining term</option>
+        <option value="keep">Keep same repayment</option>
+        <option value="set">Set specific amount</option>
+      </select>
+    </div>
+    <div id="kp-new-payment-row" class="form-row" style="display:none">
+      <label id="kp-new-payment-label">New Repayment ($)</label>
+      <input type="number" id="kp-new-payment" placeholder="0.00" min="0" step="0.01">
+      <div class="hint">Leave blank to keep unchanged</div>
     </div>
     <div class="form-row">
       <label>Note (optional)</label>
@@ -392,6 +406,19 @@ function compoundValue(principal, annualRate, compound, fromDate, toDate, type, 
   return Math.max(0, balance);
 }
 
+// Resolve the new payment amount after a rate-change event
+function resolvePaymentAfterRateChange(kp, P, newR, pf, acc) {
+  if (kp.paymentMode === 'set' && kp.newPayment) return kp.newPayment;
+  if (kp.paymentMode === 'keep') return null; // signal: keep current
+  // 'auto' (default): recalculate for remaining term
+  const origEnd = new Date(acc.startDate + 'T00:00:00');
+  origEnd.setFullYear(origEnd.getFullYear() + (acc.term || 30));
+  const MS_YEAR = 365.25 * 24 * 3600 * 1000;
+  const remainYears = Math.max(1/12, (origEnd - new Date(kp.date + 'T00:00:00')) / MS_YEAR);
+  const freq = pf || 12, rr = newR / freq, N = Math.max(1, remainYears * freq);
+  return rr === 0 ? P / N : (P * rr * Math.pow(1+rr, N)) / (Math.pow(1+rr, N) - 1);
+}
+
 function calcValue(acc, dateStr, withKeypoints) {
   const accStart = new Date(acc.startDate + 'T00:00:00');
   const target   = new Date(dateStr + 'T00:00:00');
@@ -403,27 +430,33 @@ function calcValue(acc, dateStr, withKeypoints) {
     return compoundValue(acc.principal, acc.rate/100, acc.compound, accStart, target, acc.type, acc.payment, acc.term, pf);
   }
 
-  // Replay segments defined by keypoints
   const kps = [...acc.keypoints]
     .filter(k => k.date >= acc.startDate && k.date <= dateStr && k.type !== 'note')
     .sort((a, b) => a.date.localeCompare(b.date));
 
   let P = acc.principal, r = acc.rate/100, cpd = acc.compound, segStart = accStart;
+  let currentPayment = acc.payment; // tracks payment through rate changes
 
   for (const kp of kps) {
     const kpDate = new Date(kp.date + 'T00:00:00');
     if (kpDate <= segStart) continue;
-    const valAtKp = compoundValue(P, r, cpd, segStart, kpDate, acc.type, acc.payment, acc.term, pf);
+    const valAtKp = compoundValue(P, r, cpd, segStart, kpDate, acc.type, currentPayment, acc.term, pf);
     if (kp.type === 'rate_change') {
-      P = valAtKp; r = kp.value / 100; segStart = kpDate;
+      const newR = kp.value / 100;
+      const resolved = resolvePaymentAfterRateChange(kp, valAtKp, newR, pf, acc);
+      if (resolved !== null) currentPayment = resolved;
+      // 'keep': currentPayment unchanged
+      P = valAtKp; r = newR; segStart = kpDate;
     } else if (kp.type === 'extra_payment') {
       P = Math.max(0, valAtKp - kp.value); segStart = kpDate;
     } else if (kp.type === 'lump_sum') {
       P = valAtKp + kp.value; segStart = kpDate;
+    } else if (kp.type === 'payment_change') {
+      currentPayment = kp.value; P = valAtKp; segStart = kpDate;
     }
   }
 
-  return compoundValue(P, r, cpd, segStart, target, acc.type, acc.payment, acc.term, pf);
+  return compoundValue(P, r, cpd, segStart, target, acc.type, currentPayment, acc.term, pf);
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -441,6 +474,12 @@ function renderSidebar() {
   const today = new Date().toISOString().slice(0, 10);
   list.innerHTML = accounts.map(acc => {
     const val = calcValue(acc, today, true);
+    const effPmt = acc.paymentFreq ? getEffectivePayment(acc) : null;
+    const initPmt = acc.payment;
+    const pmtChanged = effPmt && initPmt && Math.abs(effPmt - initPmt) > 0.01;
+    const pmtTag = effPmt
+      ? `<span title="${pmtChanged ? `Initial: ${fmt(initPmt)}` : ''}">${fmt(effPmt)} ${freqLabel(acc.paymentFreq)}${pmtChanged ? ' *' : ''}</span>`
+      : '';
     const kpHtml = acc.keypoints.length
       ? `<div class="kp-section">
            <div class="kp-section-title">Events</div>
@@ -465,7 +504,7 @@ function renderSidebar() {
         <div class="ai-meta">
           <span>From ${fmtDate(acc.startDate)}</span>
           <span>${acc.rate}% p.a.</span>
-          ${acc.payment && acc.paymentFreq ? `<span>${fmt(acc.payment)} ${freqLabel(acc.paymentFreq)}</span>` : ''}
+          ${pmtTag}
         </div>
         <div class="ai-val ${acc.type}">${fmt(val)}</div>
         ${kpHtml}
@@ -484,9 +523,15 @@ function freqLabel(freq) {
 
 function kpLabel(kp) {
   const n = kp.note ? ` (${kp.note})` : '';
-  if (kp.type === 'rate_change')   return `Rate → ${kp.value}%${n}`;
-  if (kp.type === 'extra_payment') return `Payment ${fmt(kp.value)}${n}`;
-  if (kp.type === 'lump_sum')      return `Deposit ${fmt(kp.value)}${n}`;
+  if (kp.type === 'rate_change') {
+    let base = `Rate → ${kp.value}%`;
+    if (kp.paymentMode === 'keep') base += ' · pmt unchanged';
+    else if (kp.paymentMode === 'set' && kp.newPayment) base += ` · pmt → ${fmt(kp.newPayment)}`;
+    return base + n;
+  }
+  if (kp.type === 'payment_change')  return `Pmt → ${fmt(kp.value)}${n}`;
+  if (kp.type === 'extra_payment')   return `Payment ${fmt(kp.value)}${n}`;
+  if (kp.type === 'lump_sum')        return `Deposit ${fmt(kp.value)}${n}`;
   return kp.note || 'Note';
 }
 
@@ -523,20 +568,53 @@ function hexRgba(hex, a) {
   return `rgba(${r},${g},${b},${a})`;
 }
 
-// Returns the {P, r, segStart} state active just before sortedKps[idx]
+// Returns the {P, r, segStart, currentPayment} state active just before sortedKps[idx]
 function getPreEventState(acc, sortedKps, idx) {
   let P = acc.principal, r = acc.rate/100, segStart = new Date(acc.startDate + 'T00:00:00');
+  let currentPayment = acc.payment;
+  const pf = acc.paymentFreq || null;
   for (let i = 0; i < idx; i++) {
     const kp = sortedKps[i];
     if (kp.type === 'note') continue;
     const kpDate = new Date(kp.date + 'T00:00:00');
     if (kpDate <= segStart) continue;
-    const val = compoundValue(P, r, acc.compound, segStart, kpDate, acc.type, acc.payment, acc.term, acc.paymentFreq);
-    if (kp.type === 'rate_change')   { P = val; r = kp.value/100; segStart = kpDate; }
-    else if (kp.type === 'extra_payment') { P = Math.max(0, val - kp.value); segStart = kpDate; }
-    else if (kp.type === 'lump_sum')      { P = val + kp.value; segStart = kpDate; }
+    const val = compoundValue(P, r, acc.compound, segStart, kpDate, acc.type, currentPayment, acc.term, pf);
+    if (kp.type === 'rate_change') {
+      const newR = kp.value / 100;
+      const resolved = resolvePaymentAfterRateChange(kp, val, newR, pf, acc);
+      if (resolved !== null) currentPayment = resolved;
+      P = val; r = newR; segStart = kpDate;
+    } else if (kp.type === 'extra_payment') { P = Math.max(0, val - kp.value); segStart = kpDate; if (kp.newPayment) currentPayment = kp.newPayment; }
+    else if (kp.type === 'lump_sum')        { P = val + kp.value; segStart = kpDate; if (kp.newPayment) currentPayment = kp.newPayment; }
+    else if (kp.type === 'payment_change')  { currentPayment = kp.value; P = val; segStart = kpDate; }
   }
-  return { P, r, segStart };
+  return { P, r, segStart, currentPayment };
+}
+
+// Returns the effective current payment for a position as of today
+function getEffectivePayment(acc) {
+  const today = new Date().toISOString().slice(0,10);
+  const kps = [...acc.keypoints].filter(k => k.date <= today && k.type !== 'note').sort((a,b) => a.date.localeCompare(b.date));
+  let P = acc.principal, r = acc.rate/100, segStart = new Date(acc.startDate+'T00:00:00');
+  let currentPayment = acc.payment;
+  const pf = acc.paymentFreq || null;
+  for (const kp of kps) {
+    const kpDate = new Date(kp.date+'T00:00:00');
+    if (kpDate <= segStart) continue;
+    const val = compoundValue(P, r, acc.compound, segStart, kpDate, acc.type, currentPayment, acc.term, pf);
+    if (kp.type === 'rate_change') {
+      const newR = kp.value/100;
+      const resolved = resolvePaymentAfterRateChange(kp, val, newR, pf, acc);
+      if (resolved !== null) currentPayment = resolved;
+      P = val; r = newR; segStart = kpDate;
+    } else {
+      if (kp.newPayment) currentPayment = kp.newPayment;
+      if (kp.type === 'extra_payment') { P = Math.max(0, val - kp.value); segStart = kpDate; }
+      else if (kp.type === 'lump_sum') { P = val + kp.value; segStart = kpDate; }
+      else if (kp.type === 'payment_change') { currentPayment = kp.value; P = val; segStart = kpDate; }
+    }
+  }
+  return currentPayment;
 }
 
 function redraw() {
@@ -579,12 +657,12 @@ function redraw() {
 
     for (let i = 0; i < sortedKps.length; i++) {
       const kp = sortedKps[i];
-      const { P, r, segStart } = getPreEventState(acc, sortedKps, i);
+      const { P, r, segStart, currentPayment } = getPreEventState(acc, sortedKps, i);
       const kpDate = new Date(kp.date + 'T00:00:00');
-      const valAtKp = compoundValue(P, r, acc.compound, segStart, kpDate, acc.type, acc.payment, acc.term, acc.paymentFreq);
+      const valAtKp = compoundValue(P, r, acc.compound, segStart, kpDate, acc.type, currentPayment, acc.term, acc.paymentFreq);
       const cfData = dates.map(d => {
         if (d < kp.date) return null;
-        return +compoundValue(valAtKp, r, acc.compound, kpDate, new Date(d+'T00:00:00'), acc.type, acc.payment, acc.term, acc.paymentFreq).toFixed(2);
+        return +compoundValue(valAtKp, r, acc.compound, kpDate, new Date(d+'T00:00:00'), acc.type, currentPayment, acc.term, acc.paymentFreq).toFixed(2);
       });
       datasets.push({
         label: `${acc.name} — if no "${kpLabel(kp)}"`,
@@ -745,11 +823,13 @@ function selectType(type, btn) {
 // ─── Keypoint modal ───────────────────────────────────────────────────────────
 function openAddKeypoint(accId) {
   editingKpId = null;
-  document.getElementById('kp-acc-id').value = accId;
-  document.getElementById('kp-date').value   = new Date().toISOString().slice(0,10);
-  document.getElementById('kp-type').value   = 'rate_change';
-  document.getElementById('kp-value').value  = '';
-  document.getElementById('kp-note').value   = '';
+  document.getElementById('kp-acc-id').value        = accId;
+  document.getElementById('kp-date').value          = new Date().toISOString().slice(0,10);
+  document.getElementById('kp-type').value          = 'rate_change';
+  document.getElementById('kp-value').value         = '';
+  document.getElementById('kp-note').value          = '';
+  document.getElementById('kp-payment-mode').value  = 'auto';
+  document.getElementById('kp-new-payment').value   = '';
   document.querySelector('#keypoint-modal h2').textContent = 'Add Event';
   document.getElementById('kp-save-btn').textContent = 'Add Event';
   onKpTypeChange();
@@ -761,11 +841,13 @@ function editKeypoint(accId, kpId) {
   const kp  = acc && acc.keypoints.find(k => k.id === kpId);
   if (!kp) return;
   editingKpId = kpId;
-  document.getElementById('kp-acc-id').value = accId;
-  document.getElementById('kp-date').value   = kp.date;
-  document.getElementById('kp-type').value   = kp.type;
-  document.getElementById('kp-value').value  = kp.value || '';
-  document.getElementById('kp-note').value   = kp.note || '';
+  document.getElementById('kp-acc-id').value        = accId;
+  document.getElementById('kp-date').value          = kp.date;
+  document.getElementById('kp-type').value          = kp.type;
+  document.getElementById('kp-value').value         = kp.value || '';
+  document.getElementById('kp-note').value          = kp.note || '';
+  document.getElementById('kp-payment-mode').value  = kp.paymentMode || 'auto';
+  document.getElementById('kp-new-payment').value   = kp.newPayment || '';
   document.querySelector('#keypoint-modal h2').textContent = 'Edit Event';
   document.getElementById('kp-save-btn').textContent = 'Save Changes';
   onKpTypeChange();
@@ -773,33 +855,61 @@ function editKeypoint(accId, kpId) {
 }
 
 function onKpTypeChange() {
-  const type = document.getElementById('kp-type').value;
-  const row  = document.getElementById('kp-value-row');
-  const lbl  = document.getElementById('kp-value-label');
-  if (type === 'note') { row.style.display = 'none'; return; }
+  const type  = document.getElementById('kp-type').value;
+  const accId = document.getElementById('kp-acc-id').value;
+  const acc   = accounts.find(a => a.id === accId);
+  const row   = document.getElementById('kp-value-row');
+  const lbl   = document.getElementById('kp-value-label');
+  const pmRow = document.getElementById('kp-payment-mode-row');
+
+  if (type === 'note') {
+    row.style.display = 'none';
+    pmRow.style.display = 'none';
+    document.getElementById('kp-new-payment-row').style.display = 'none';
+    return;
+  }
   row.style.display = '';
   lbl.textContent =
-    type === 'rate_change'   ? 'New Rate (% p.a.)' :
-    type === 'extra_payment' ? 'Payment / Withdrawal Amount ($)' :
-                               'Deposit Amount ($)';
+    type === 'rate_change'    ? 'New Rate (% p.a.)' :
+    type === 'payment_change' ? (acc && acc.type === 'loan' ? 'New Repayment Amount ($)' : 'New Contribution Amount ($)') :
+    type === 'extra_payment'  ? 'Payment / Withdrawal Amount ($)' :
+                                'Deposit Amount ($)';
+  // Repayment mode only for rate changes on loans
+  const showPmMode = type === 'rate_change' && acc && acc.type === 'loan';
+  pmRow.style.display = showPmMode ? '' : 'none';
+  if (!showPmMode) document.getElementById('kp-new-payment-row').style.display = 'none';
+  else onKpPaymentModeChange();
+}
+
+function onKpPaymentModeChange() {
+  const mode = document.getElementById('kp-payment-mode').value;
+  document.getElementById('kp-new-payment-row').style.display = mode === 'set' ? '' : 'none';
 }
 
 function saveKeypoint() {
-  const accId = document.getElementById('kp-acc-id').value;
-  const date  = document.getElementById('kp-date').value;
-  const type  = document.getElementById('kp-type').value;
-  const value = parseFloat(document.getElementById('kp-value').value) || 0;
-  const note  = document.getElementById('kp-note').value.trim();
+  const accId       = document.getElementById('kp-acc-id').value;
+  const date        = document.getElementById('kp-date').value;
+  const type        = document.getElementById('kp-type').value;
+  const value       = parseFloat(document.getElementById('kp-value').value) || 0;
+  const note        = document.getElementById('kp-note').value.trim();
+  const paymentMode = document.getElementById('kp-payment-mode').value;
+  const newPayment  = parseFloat(document.getElementById('kp-new-payment').value) || null;
   if (!date) { alert('Please select a date.'); return; }
+  if (type !== 'note' && type !== 'extra_payment' && !value) {
+    alert('Please enter a value.'); return;
+  }
 
   const acc = accounts.find(a => a.id === accId);
   if (!acc) return;
 
+  const data = { date, type, value, note,
+    ...(type === 'rate_change' && acc.type === 'loan' ? { paymentMode, newPayment } : {}) };
+
   if (editingKpId) {
     const kp = acc.keypoints.find(k => k.id === editingKpId);
-    if (kp) Object.assign(kp, { date, type, value, note });
+    if (kp) Object.assign(kp, data);
   } else {
-    acc.keypoints.push({ id: uid(), date, type, value, note });
+    acc.keypoints.push({ id: uid(), ...data });
   }
   editingKpId = null;
   save(); closeModal('keypoint-modal'); renderSidebar(); redraw();
