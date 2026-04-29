@@ -206,14 +206,6 @@
         <button class="ctrl-btn" onclick="setRange('10y',this)">+10Y</button>
         <button class="ctrl-btn" onclick="setRange('all',this)">+30Y</button>
       </div>
-      <div class="toggles">
-        <label class="toggle-item">
-          <input type="checkbox" id="show-projected" checked onchange="redraw()"> Projected
-        </label>
-        <label class="toggle-item">
-          <input type="checkbox" id="show-actual" checked onchange="redraw()"> Actual
-        </label>
-      </div>
     </div>
     <div id="chart-wrap">
       <canvas id="chart"></canvas>
@@ -525,11 +517,7 @@ function hexRgba(hex, a) {
 }
 
 function redraw() {
-  const showP = document.getElementById('show-projected').checked;
-  const showA = document.getElementById('show-actual').checked;
-
   if (myChart) { myChart.destroy(); myChart = null; }
-
   if (!accounts.length) return;
 
   const { start, end } = getRange();
@@ -538,30 +526,16 @@ function redraw() {
   const datasets = [];
 
   for (const acc of accounts) {
-    const project = dates.map(d => { const v = calcValue(acc,d,false); return v!=null ? +v.toFixed(2) : null; });
-    const actual  = dates.map(d => { const v = calcValue(acc,d,true);  return v!=null ? +v.toFixed(2) : null; });
+    const values = dates.map(d => { const v = calcValue(acc,d,true); return v!=null ? +v.toFixed(2) : null; });
 
-    // Keypoint dates are now exact matches in the dates array
     const kpDateSet = new Set(acc.keypoints.map(k => k.date));
-    const kpRadii   = dates.map(d => kpDateSet.has(d) ? 6 : 0);
-    const kpBg      = dates.map(d => kpDateSet.has(d) ? '#ffffff' : 'transparent');
-    const kpHover   = dates.map(d => kpDateSet.has(d) ? 8 : 4);
+    const kpRadii = dates.map(d => kpDateSet.has(d) ? 6 : 0);
+    const kpBg    = dates.map(d => kpDateSet.has(d) ? '#ffffff' : 'transparent');
+    const kpHover = dates.map(d => kpDateSet.has(d) ? 8 : 4);
 
-    if (showP) datasets.push({
-      label: acc.name + ' (Projected)',
-      data: project,
-      borderColor: acc.color,
-      backgroundColor: 'transparent',
-      borderDash: [6,4],
-      borderWidth: 1.5,
-      pointRadius: 0,
-      tension: 0.35,
-      spanGaps: true,
-    });
-
-    if (showA) datasets.push({
-      label: acc.name + ' (Actual)',
-      data: actual,
+    datasets.push({
+      label: acc.name,
+      data: values,
       borderColor: acc.color,
       backgroundColor: hexRgba(acc.color, 0.07),
       fill: true,
