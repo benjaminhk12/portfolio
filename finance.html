@@ -504,12 +504,18 @@ function getRange() {
   return { start, end };
 }
 
-function buildDates(start, end) {
+function buildDates(start, end, extraDates = []) {
   const dates = [], MS_MONTH = 30.4375 * 24 * 3600 * 1000;
   let cur = new Date(start);
   while (cur <= end) { dates.push(cur.toISOString().slice(0,10)); cur = new Date(cur.getTime() + MS_MONTH); }
   const last = end.toISOString().slice(0,10);
   if (dates[dates.length-1] !== last) dates.push(last);
+  // Inject keypoint dates so markers land exactly on those points
+  const startStr = start.toISOString().slice(0,10), endStr = last;
+  for (const d of extraDates) {
+    if (d >= startStr && d <= endStr && !dates.includes(d)) dates.push(d);
+  }
+  dates.sort();
   return dates;
 }
 
@@ -527,17 +533,19 @@ function redraw() {
   if (!accounts.length) return;
 
   const { start, end } = getRange();
-  const dates = buildDates(start, end);
+  const allKpDates = accounts.flatMap(acc => acc.keypoints.map(k => k.date));
+  const dates = buildDates(start, end, allKpDates);
   const datasets = [];
 
   for (const acc of accounts) {
     const project = dates.map(d => { const v = calcValue(acc,d,false); return v!=null ? +v.toFixed(2) : null; });
     const actual  = dates.map(d => { const v = calcValue(acc,d,true);  return v!=null ? +v.toFixed(2) : null; });
 
-    // Mark keypoint dates with a visible dot on the actual line
+    // Keypoint dates are now exact matches in the dates array
     const kpDateSet = new Set(acc.keypoints.map(k => k.date));
-    const kpRadii   = dates.map(d => kpDateSet.has(d) ? 5 : 0);
-    const kpBgColor = dates.map(d => kpDateSet.has(d) ? '#ffffff' : 'transparent');
+    const kpRadii   = dates.map(d => kpDateSet.has(d) ? 6 : 0);
+    const kpBg      = dates.map(d => kpDateSet.has(d) ? '#ffffff' : 'transparent');
+    const kpHover   = dates.map(d => kpDateSet.has(d) ? 8 : 4);
 
     if (showP) datasets.push({
       label: acc.name + ' (Projected)',
@@ -559,7 +567,8 @@ function redraw() {
       fill: true,
       borderWidth: 2,
       pointRadius: kpRadii,
-      pointBackgroundColor: kpBgColor,
+      pointHoverRadius: kpHover,
+      pointBackgroundColor: kpBg,
       pointBorderColor: acc.color,
       pointBorderWidth: 2,
       tension: 0.35,
@@ -578,10 +587,6 @@ function redraw() {
       plugins: {
         legend: {
           labels: { color: '#c0cce0', font: { size: 12 }, boxWidth: 22, padding: 14 },
-          onClick(e, item, legend) {
-            // default toggle but hide event scatter from legend
-          },
-          filter: item => !item.text.endsWith(' events'),
         },
         tooltip: {
           backgroundColor: '#0d0d1e',
@@ -589,7 +594,20 @@ function redraw() {
           borderWidth: 1,
           titleColor: '#d8e8ff',
           bodyColor: '#c0cce0',
-          callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}` }
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}`,
+            afterBody: items => {
+              if (!items.length) return [];
+              const date = dates[items[0].dataIndex];
+              const lines = [];
+              for (const acc of accounts) {
+                for (const kp of acc.keypoints) {
+                  if (kp.date === date) lines.push(`  ⬥ ${acc.name}: ${kpLabel(kp)}`);
+                }
+              }
+              return lines.length ? ['', ...lines] : [];
+            }
+          }
         }
       },
       scales: {
