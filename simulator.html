@@ -13,6 +13,39 @@
     --text:   #c0cce0;
     --dim:    #50587a;
     --danger: #ff4a6a;
+    --button: #10102a;
+    --button-hover: #1a1a40;
+    --button-primary: #0e2856;
+    --button-primary-hover: #162e70;
+    --button-danger: #3a1020;
+    --field: #08081a;
+    --hint-bg: rgba(6,6,15,.88);
+    --row-hover: rgba(255,255,255,.05);
+    --selected: rgba(74,158,255,.12);
+    --focus-ring: rgba(74,158,255,.15);
+    --sim-canvas-bg: #06060f;
+    --sim-star: #ffffff;
+  }
+  body[data-theme="light"] {
+    --bg:     #f5f7fb;
+    --panel:  #ffffff;
+    --border: #dbe2ee;
+    --accent: #2563eb;
+    --text:   #172033;
+    --dim:    #64748b;
+    --danger: #dc2626;
+    --button: #ffffff;
+    --button-hover: #eef4ff;
+    --button-primary: #dbeafe;
+    --button-primary-hover: #bfdbfe;
+    --button-danger: #fee2e2;
+    --field: #ffffff;
+    --hint-bg: rgba(255,255,255,.9);
+    --row-hover: rgba(15,23,42,.05);
+    --selected: rgba(37,99,235,.12);
+    --focus-ring: rgba(37,99,235,.16);
+    --sim-canvas-bg: #edf2f8;
+    --sim-star: #64748b;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -42,27 +75,46 @@
   .tlbl { font-size: 11px; color: var(--dim); white-space: nowrap; }
   button {
     display: inline-flex; align-items: center; gap: 5px;
-    background: #10102a; color: var(--text);
+    background: var(--button); color: var(--text);
     border: 1px solid var(--border);
     border-radius: 6px; padding: 5px 11px;
     font-size: 12px; cursor: pointer;
     transition: all .12s; white-space: nowrap;
     font-family: inherit;
   }
-  button:hover { background: #1a1a40; border-color: var(--accent); color: #90c0ff; }
-  button.primary { background: #0e2856; border-color: var(--accent); color: var(--accent); font-weight: 600; }
-  button.primary:hover { background: #162e70; }
-  button.danger  { border-color: #3a1020; color: #ff8090; }
-  button.danger:hover { background: #3a1020; border-color: var(--danger); color: var(--danger); }
+  button:hover { background: var(--button-hover); border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--button-primary); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  button.primary:hover { background: var(--button-primary-hover); }
+  button.danger  { border-color: var(--button-danger); color: var(--danger); }
+  button.danger:hover { background: var(--button-danger); border-color: var(--danger); color: var(--danger); }
   input[type="range"] { accent-color: var(--accent); width: 72px; cursor: pointer; }
   select {
-    background: #10102a; color: var(--text);
+    background: var(--button); color: var(--text);
     border: 1px solid var(--border);
     border-radius: 6px; padding: 5px 8px;
     font-size: 12px; cursor: pointer; font-family: inherit;
   }
   select:hover { border-color: var(--accent); }
   label.cb { display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 12px; }
+  .home-link { color: var(--dim); text-decoration: none; font-size: 12px; padding: 5px 2px; }
+  .home-link:hover { color: var(--accent); }
+  .theme-toggle {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 8px;
+    color: var(--dim); font-size: 12px; cursor: pointer; user-select: none;
+  }
+  .theme-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+  .theme-switch {
+    width: 44px; height: 24px; padding: 2px; border-radius: 999px;
+    background: var(--bg); border: 1px solid var(--border);
+    transition: border-color .12s, background .12s;
+  }
+  .theme-switch::after {
+    content: ''; display: block; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); transform: translateX(0);
+    transition: transform .18s;
+  }
+  #theme-toggle:checked + .theme-switch::after { transform: translateX(20px); }
+  .theme-toggle:hover { color: var(--accent); }
 
   /* ── Layout ── */
   #main { display: flex; flex: 1; overflow: hidden; }
@@ -73,7 +125,7 @@
 
   #hint {
     position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
-    background: rgba(6,6,15,.88); border: 1px solid var(--border);
+    background: var(--hint-bg); border: 1px solid var(--border);
     border-radius: 20px; padding: 5px 16px; font-size: 11px; color: var(--dim);
     pointer-events: none; white-space: nowrap; transition: opacity .3s;
   }
@@ -101,8 +153,8 @@
     padding: 5px 10px; cursor: pointer;
     transition: background .1s; border-radius: 4px; margin: 1px 4px;
   }
-  .brow:hover { background: rgba(255,255,255,.05); }
-  .brow.sel   { background: rgba(74,158,255,.12); }
+  .brow:hover { background: var(--row-hover); }
+  .brow.sel   { background: var(--selected); }
   .bdot  { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
   .bname { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .bmass { font-size: 11px; color: var(--dim); flex-shrink: 0; }
@@ -120,11 +172,11 @@
   .field  { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
   .flbl   { width: 44px; font-size: 11px; color: var(--dim); flex-shrink: 0; }
   .field input[type="number"] {
-    flex: 1; background: #08081a; border: 1px solid var(--border);
+    flex: 1; background: var(--field); border: 1px solid var(--border);
     border-radius: 4px; color: var(--text); padding: 4px 7px;
     font-size: 12px; font-family: 'Consolas', monospace; min-width: 0;
   }
-  .field input[type="number"]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(74,158,255,.15); }
+  .field input[type="number"]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--focus-ring); }
   .field input[type="color"] {
     width: 34px; height: 24px; border: 1px solid var(--border);
     border-radius: 4px; background: none; cursor: pointer; padding: 2px;
@@ -144,6 +196,8 @@
 <body>
 
 <div id="toolbar">
+  <a class="home-link" href="index.html">&#8592; Back</a>
+  <div class="sep"></div>
   <button id="btn-play" class="primary" onclick="toggleSim()">&#9654; Play</button>
   <div class="sep"></div>
   <button onclick="resetSim()" title="Stop and clear trails">&#8635; Reset</button>
@@ -168,6 +222,11 @@
     <option value="chaos">Chaos (8 Bodies)</option>
     <option value="earthmoon">Sun, Earth &amp; Moon</option>
   </select>
+  <label class="theme-toggle" title="Switch between dark and light mode">
+    <span>Light mode</span>
+    <input type="checkbox" id="theme-toggle" onchange="setTheme(this.checked ? 'light' : 'dark')">
+    <span class="theme-switch" aria-hidden="true"></span>
+  </label>
 </div>
 
 <div id="main">
@@ -195,6 +254,18 @@
 
 <script>
 'use strict';
+
+function cssVar(name) {
+  return getComputedStyle(document.body).getPropertyValue(name).trim();
+}
+
+function setTheme(theme) {
+  document.body.dataset.theme = theme;
+  localStorage.setItem('portfolio_theme', theme);
+  const toggle = document.getElementById('theme-toggle');
+  if (toggle) toggle.checked = theme === 'light';
+  if (!running && typeof render === 'function' && canvas.width) render();
+}
 
 // ═══════════════════════════════════════════════════════════
 //  Constants
@@ -390,14 +461,14 @@ function render() {
 
   // Background (screen space)
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = '#06060f';
+  ctx.fillStyle = cssVar('--sim-canvas-bg');
   ctx.fillRect(0, 0, W, H);
 
   // Stars (fixed to screen — no camera transform)
   ctx.save();
   for (const s of stars) {
     ctx.globalAlpha = s.a;
-    ctx.fillStyle   = '#ffffff';
+    ctx.fillStyle   = cssVar('--sim-star');
     ctx.beginPath();
     ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
     ctx.fill();
@@ -864,7 +935,7 @@ function updateEditor() {
   ec.innerHTML =
     '<div class="field">' +
       '<div class="flbl">Name</div>' +
-      '<input type="text" id="f-name" value="' + b.label + '" maxlength="24" style="flex:1;background:#08081a;border:1px solid var(--border);border-radius:4px;color:var(--text);padding:4px 7px;font-size:12px;min-width:0;" oninput="selName(this.value)">' +
+      '<input type="text" id="f-name" value="' + b.label + '" maxlength="24" style="flex:1;background:var(--field);border:1px solid var(--border);border-radius:4px;color:var(--text);padding:4px 7px;font-size:12px;min-width:0;" oninput="selName(this.value)">' +
     '</div>' +
     '<div class="field">' +
       '<div class="flbl">Color</div>' +
@@ -1102,6 +1173,7 @@ function fitAll() {
 // ═══════════════════════════════════════════════════════════
 //  Bootstrap
 // ═══════════════════════════════════════════════════════════
+setTheme(localStorage.getItem('portfolio_theme') || 'light');
 window.addEventListener('load', () => { resize(); loadPreset('solar'); });
 </script>
 </body>

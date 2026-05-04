@@ -6,12 +6,24 @@
 <title>Portfolio</title>
 <style>
   :root {
-    --bg:     #06060f;
-    --panel:  #0c0c1a;
-    --border: #1c1e38;
-    --accent: #4a9eff;
-    --text:   #c0cce0;
-    --dim:    #50587a;
+    --bg:     #f5f7fb;
+    --panel:  #ffffff;
+    --border: #dbe2ee;
+    --accent: #2563eb;
+    --text:   #172033;
+    --dim:    #64748b;
+    --title:  #0f172a;
+    --shadow: rgba(15, 23, 42, 0.08);
+  }
+  body[data-theme="dark"] {
+    --bg:     #111827;
+    --panel:  #182235;
+    --border: #2d3a50;
+    --accent: #60a5fa;
+    --text:   #cbd5e1;
+    --dim:    #94a3b8;
+    --title:  #f8fafc;
+    --shadow: rgba(0, 0, 0, 0.22);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -23,19 +35,16 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
-    position: relative;
+    overflow-x: hidden;
   }
-  #stars { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
   .container {
-    position: relative; z-index: 1;
     display: flex; flex-direction: column; align-items: center;
     gap: 48px; padding: 40px 20px; width: 100%; max-width: 860px;
   }
   header { text-align: center; }
   header h1 {
     font-size: clamp(28px, 5vw, 48px); font-weight: 700;
-    letter-spacing: -0.02em; color: #e8eeff; margin-bottom: 10px;
+    letter-spacing: -0.02em; color: var(--title); margin-bottom: 10px;
   }
   header p { font-size: 15px; color: var(--dim); max-width: 480px; line-height: 1.6; }
   .accent-line {
@@ -58,28 +67,51 @@
   }
   .card::before {
     content: ''; position: absolute; inset: 0;
-    background: radial-gradient(ellipse at top left, rgba(74,158,255,0.06), transparent 70%);
+     background: radial-gradient(ellipse at top left, rgba(37,99,235,0.08), transparent 70%);
     opacity: 0; transition: opacity .18s;
   }
-  .card:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 8px 32px rgba(74,158,255,0.12); }
+  .card:hover { border-color: var(--accent); transform: translateY(-3px); box-shadow: 0 8px 32px var(--shadow); }
   .card:hover::before { opacity: 1; }
   .card-icon  { font-size: 32px; line-height: 1; }
-  .card-title { font-size: 18px; font-weight: 600; color: #d8e8ff; }
+  .card-title { font-size: 18px; font-weight: 600; color: var(--title); }
   .card-desc  { font-size: 13px; color: var(--dim); line-height: 1.6; flex: 1; }
   .card-tag {
     display: inline-flex; align-items: center; gap: 5px;
     font-size: 11px; color: var(--accent);
-    background: rgba(74,158,255,0.1); border: 1px solid rgba(74,158,255,0.2);
+    background: rgba(37,99,235,0.1); border: 1px solid rgba(37,99,235,0.2);
     border-radius: 20px; padding: 3px 10px; align-self: flex-start; margin-top: 4px;
   }
   .card.soon { opacity: 0.5; cursor: default; pointer-events: none; }
   .card.soon:hover { transform: none; box-shadow: none; border-color: var(--border); }
   .card-tag.soon-tag { color: var(--dim); background: rgba(80,88,122,0.15); border-color: rgba(80,88,122,0.3); }
   footer { font-size: 11px; color: var(--dim); letter-spacing: 0.05em; }
+  .theme-toggle {
+    position: fixed; top: 18px; right: 18px;
+    display: inline-flex; align-items: center; gap: 8px;
+    color: var(--dim); font-size: 12px; cursor: pointer; user-select: none;
+  }
+  .theme-toggle input { position: absolute; opacity: 0; pointer-events: none; }
+  .theme-switch {
+    width: 44px; height: 24px; padding: 2px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--border);
+    transition: border-color .12s, background .12s;
+  }
+  .theme-switch::after {
+    content: ''; display: block; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); transform: translateX(0);
+    transition: transform .18s;
+  }
+  #theme-toggle:checked + .theme-switch::after { transform: translateX(20px); }
+  .theme-toggle:hover { color: var(--accent); }
 </style>
 </head>
 <body>
-<canvas id="stars"></canvas>
+<label class="theme-toggle" title="Switch between dark and light mode">
+  <span>Light mode</span>
+  <input type="checkbox" id="theme-toggle" onchange="setTheme(this.checked ? 'light' : 'dark')">
+  <span class="theme-switch" aria-hidden="true"></span>
+</label>
+
 <div class="container">
   <header>
     <h1>Benjamin's Portfolio</h1>
@@ -121,36 +153,13 @@
 
 <script>
 'use strict';
-const canvas = document.getElementById('stars');
-const ctx    = canvas.getContext('2d');
-let stars    = [];
-
-function buildStars() {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
-  stars = [];
-  const n = Math.ceil(canvas.width * canvas.height / 4000);
-  for (let i = 0; i < n; i++)
-    stars.push({ x: Math.random()*canvas.width, y: Math.random()*canvas.height,
-                 r: Math.random()*1.0+0.3, a: Math.random()*0.55+0.2, tw: Math.random()*Math.PI*2 });
-  requestAnimationFrame(drawStars);
+function setTheme(theme) {
+  document.body.dataset.theme = theme;
+  localStorage.setItem('portfolio_theme', theme);
+  const toggle = document.getElementById('theme-toggle');
+  if (toggle) toggle.checked = theme === 'light';
 }
-
-function drawStars(t) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  for (const s of stars) {
-    ctx.globalAlpha = s.a * (0.7 + 0.3 * Math.sin(s.tw + t * 0.0008));
-    ctx.fillStyle = '#ffffff';
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-  requestAnimationFrame(drawStars);
-}
-
-window.addEventListener('resize', buildStars);
-buildStars();
+setTheme(localStorage.getItem('portfolio_theme') || 'light');
 </script>
 </body>
 </html>
