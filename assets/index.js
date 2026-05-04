@@ -1,0 +1,3 @@
+'use strict';
+
+PortfolioTheme.init();
