@@ -54,32 +54,58 @@ function escapeHtml(s) {
 
 function loadSamplePortfolio() {
   const today = new Date();
-  const startDate = new Date(today.getFullYear() - 1, today.getMonth(), 1).toISOString().slice(0, 10);
-  const futureDate = new Date(today.getFullYear() + 1, today.getMonth(), 1).toISOString().slice(0, 10);
+  const Y = today.getFullYear();
+  const startDate    = new Date(Y - 2, today.getMonth(), 1).toISOString().slice(0, 10);
+  const eventDate1   = new Date(Y - 1, today.getMonth(), 1).toISOString().slice(0, 10);
+  const futureDate   = new Date(Y + 1, today.getMonth(), 1).toISOString().slice(0, 10);
+  const futureDate2  = new Date(Y + 2, today.getMonth(), 1).toISOString().slice(0, 10);
+
   accounts = [
     {
-      id: uid(), name: 'Index Fund', type: 'investment',
-      principal: 25000, startDate, rate: 7, compound: 'monthly',
-      term: null, payment: 500, paymentFreq: 12, color: '#4a9eff',
-      keypoints: []
-    },
-    {
-      id: uid(), name: 'Home Loan', type: 'loan',
-      principal: 350000, startDate, rate: 6.5, compound: 'monthly',
-      term: 25, payment: null, paymentFreq: 26, color: '#ff6b6b',
+      id: uid(), name: 'S&P 500 Index Fund', type: 'investment',
+      principal: 25000, startDate, rate: 8, compound: 'monthly',
+      term: null, payment: 600, paymentFreq: 12, color: '#4a9eff',
       keypoints: [
-        { id: uid(), date: futureDate, type: 'rate_change', value: 5.5, note: 'Refinance', paymentMode: 'auto', newPayment: null }
+        { id: uid(), date: eventDate1, type: 'lump_sum', value: 5000, note: 'Tax refund' },
+        { id: uid(), date: futureDate2, type: 'payment_change', value: 800, note: 'Pay rise' }
       ]
     },
     {
-      id: uid(), name: 'Emergency Fund', type: 'investment',
-      principal: 10000, startDate, rate: 4.5, compound: 'monthly',
-      term: null, payment: 200, paymentFreq: 12, color: '#4aff9e',
+      id: uid(), name: 'Home Loan', type: 'loan',
+      principal: 420000, startDate, rate: 6.5, compound: 'monthly',
+      term: 25, payment: null, paymentFreq: 26, color: '#ff6b6b',
+      keypoints: [
+        { id: uid(), date: futureDate, type: 'rate_change', value: 5.5, note: 'Refinance', paymentMode: 'auto', newPayment: null },
+        { id: uid(), date: futureDate2, type: 'extra_payment', value: 10000, note: 'Bonus to mortgage' }
+      ]
+    },
+    {
+      id: uid(), name: 'High-Interest Savings', type: 'investment',
+      principal: 12000, startDate, rate: 4.5, compound: 'monthly',
+      term: null, payment: 250, paymentFreq: 12, color: '#4aff9e',
+      keypoints: []
+    },
+    {
+      id: uid(), name: 'KiwiSaver', type: 'investment',
+      principal: 35000, startDate, rate: 7, compound: 'monthly',
+      term: null, payment: 400, paymentFreq: 26, color: '#c47aff',
+      keypoints: []
+    },
+    {
+      id: uid(), name: 'Car Loan', type: 'loan',
+      principal: 28000, startDate, rate: 9, compound: 'monthly',
+      term: 5, payment: null, paymentFreq: 26, color: '#ffcc4a',
       keypoints: []
     }
   ];
   save(); renderSidebar(); redraw();
   PortfolioUI.toast('Sample portfolio loaded', { type: 'success' });
+}
+
+function requestLoadSample() {
+  if (accounts.length === 0) { loadSamplePortfolio(); return; }
+  PortfolioUI.confirm('Replace your current portfolio with the sample data? Your existing positions will be lost.',
+    { okText: 'Replace', danger: true }).then(ok => { if (ok) loadSamplePortfolio(); });
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -554,6 +580,7 @@ document.querySelectorAll('.modal-overlay').forEach(el =>
 
 function bindFinanceEvents() {
   document.getElementById('btn-add-account').addEventListener('click', openAddAccount);
+  document.getElementById('btn-load-sample').addEventListener('click', requestLoadSample);
   document.getElementById('btn-reset-zoom').addEventListener('click', resetChartZoom);
   document.getElementById('btn-save-account').addEventListener('click', saveAccount);
   document.getElementById('kp-save-btn').addEventListener('click', saveKeypoint);

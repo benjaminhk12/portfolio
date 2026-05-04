@@ -73,6 +73,12 @@
     border-radius: 6px; padding: 5px 13px; font-size: 12px; font-weight: 700; cursor: pointer;
   }
   .btn-add:hover { opacity: 0.85; }
+  .sb-header-actions { display: flex; gap: 6px; }
+  .btn-sample {
+    background: transparent; color: var(--dim); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .btn-sample:hover { color: var(--accent); border-color: var(--accent); }
   #account-list { flex: 1; overflow-y: auto; padding: 8px; }
 
   /* ── Account Cards ── */
