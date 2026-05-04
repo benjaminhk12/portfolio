@@ -600,6 +600,11 @@ function deleteBody(b) {
   if (!running) render();
 }
 
+function confirmDeleteBody(b) {
+  PortfolioUI.confirm('Delete body "' + (b.name || 'unnamed') + '"?',
+    { okText: 'Delete', danger: true }).then(ok => { if (ok) deleteBody(b); });
+}
+
 function selectBody(b) {
   selected = b;
   updateBodyList();
@@ -607,10 +612,16 @@ function selectBody(b) {
 }
 
 function clearAll() {
-  pauseSim();
-  bodies = []; selected = null; simTime = 0; trailTick = 0;
-  camera.panX = 0; camera.panY = 0; camera.zoom = 1;
-  updateBodyList(); updateEditor(); updateStats(); render();
+  if (bodies.length === 0) return;
+  PortfolioUI.confirm('Remove all ' + bodies.length + ' bodies?',
+    { okText: 'Clear', danger: true }).then(ok => {
+    if (!ok) return;
+    pauseSim();
+    bodies = []; selected = null; simTime = 0; trailTick = 0;
+    camera.panX = 0; camera.panY = 0; camera.zoom = 1;
+    updateBodyList(); updateEditor(); updateStats(); render();
+    PortfolioUI.toast('Scene cleared', { type: 'success' });
+  });
 }
 
 function resetSim() {
@@ -655,7 +666,7 @@ function updateBodyList() {
 
 function deleteBodyById(id) {
   const b = bodies.find(b => b.id === id);
-  if (b) deleteBody(b);
+  if (b) confirmDeleteBody(b);
 }
 
 function fmtMass(m) {
@@ -934,7 +945,20 @@ function bindSimulatorEvents() {
   editor.addEventListener('input', onEditorInput);
   editor.addEventListener('change', onEditorInput);
   editor.addEventListener('click', e => {
-    if (e.target.id === 'del-body') deleteBody(selected);
+    if (e.target.id === 'del-body' && selected) confirmDeleteBody(selected);
+  });
+
+  // Keyboard shortcuts (ignore while typing in inputs)
+  document.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === ' ') { e.preventDefault(); toggleSim(); }
+    else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); resetSim(); }
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
+      e.preventDefault();
+      confirmDeleteBody(selected);
+    }
   });
 }
 

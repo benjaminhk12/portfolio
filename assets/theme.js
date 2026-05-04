@@ -5,7 +5,12 @@ const PortfolioTheme = (() => {
   const DEFAULT_THEME = 'light';
 
   function get() {
-    return localStorage.getItem(STORAGE_KEY) || localStorage.getItem('ft_theme') || DEFAULT_THEME;
+    const stored = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('ft_theme');
+    if (stored) return stored;
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark';
+    }
+    return DEFAULT_THEME;
   }
 
   function set(theme, onChange) {

@@ -52,6 +52,36 @@ function escapeHtml(s) {
     .replace(/'/g, '&#39;');
 }
 
+function loadSamplePortfolio() {
+  const today = new Date();
+  const startDate = new Date(today.getFullYear() - 1, today.getMonth(), 1).toISOString().slice(0, 10);
+  const futureDate = new Date(today.getFullYear() + 1, today.getMonth(), 1).toISOString().slice(0, 10);
+  accounts = [
+    {
+      id: uid(), name: 'Index Fund', type: 'investment',
+      principal: 25000, startDate, rate: 7, compound: 'monthly',
+      term: null, payment: 500, paymentFreq: 12, color: '#4a9eff',
+      keypoints: []
+    },
+    {
+      id: uid(), name: 'Home Loan', type: 'loan',
+      principal: 350000, startDate, rate: 6.5, compound: 'monthly',
+      term: 25, payment: null, paymentFreq: 26, color: '#ff6b6b',
+      keypoints: [
+        { id: uid(), date: futureDate, type: 'rate_change', value: 5.5, note: 'Refinance', paymentMode: 'auto', newPayment: null }
+      ]
+    },
+    {
+      id: uid(), name: 'Emergency Fund', type: 'investment',
+      principal: 10000, startDate, rate: 4.5, compound: 'monthly',
+      term: null, payment: 200, paymentFreq: 12, color: '#4aff9e',
+      keypoints: []
+    }
+  ];
+  save(); renderSidebar(); redraw();
+  PortfolioUI.toast('Sample portfolio loaded', { type: 'success' });
+}
+
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
 function renderSidebar() {
   const list = document.getElementById('account-list');
@@ -60,6 +90,7 @@ function renderSidebar() {
       <div class="empty-state">
         <div class="es-icon">💼</div>
         <p>No positions yet.<br>Add a loan or investment to get started.</p>
+        <button class="btn-sm" data-action="load-sample" style="margin-top:12px;">Try a sample portfolio</button>
       </div>`;
     return;
   }
@@ -363,22 +394,33 @@ function saveAccount() {
   const color       = document.getElementById('f-color').value;
 
   if (!name || isNaN(principal) || !startDate || isNaN(rate)) {
-    alert('Please fill in Name, Value, Start Date, and Rate.'); return;
+    PortfolioUI.toast('Please fill in Name, Value, Start Date, and Rate.', { type: 'error' });
+    return;
+  }
+  if (rate < 0) {
+    PortfolioUI.toast('Interest rate cannot be negative.', { type: 'error' });
+    return;
   }
 
-  if (editingId) {
+  const isEditing = !!editingId;
+  if (isEditing) {
     Object.assign(accounts.find(a => a.id === editingId), { name, principal, startDate, rate, compound, term, payment, paymentFreq, color, type: editingType });
   } else {
     accounts.push({ id: uid(), name, type: editingType, principal, startDate, rate, compound, term, payment, paymentFreq, color, keypoints: [] });
   }
 
   save(); closeModal('account-modal'); renderSidebar(); redraw();
+  PortfolioUI.toast(isEditing ? 'Position updated' : 'Position added', { type: 'success' });
 }
 
 function deleteAccount(id) {
-  if (!confirm('Delete this position and all its events?')) return;
-  accounts = accounts.filter(a => a.id !== id);
-  save(); renderSidebar(); redraw();
+  PortfolioUI.confirm('Delete this position and all its events? This cannot be undone.',
+    { okText: 'Delete', danger: true }).then(ok => {
+    if (!ok) return;
+    accounts = accounts.filter(a => a.id !== id);
+    save(); renderSidebar(); redraw();
+    PortfolioUI.toast('Position deleted', { type: 'success' });
+  });
 }
 
 function selectType(type, btn) {
@@ -468,9 +510,9 @@ function saveKeypoint() {
   const paymentMode = document.getElementById('kp-payment-mode').value;
   const newPayRaw   = document.getElementById('kp-new-payment').value.trim();
   const newPayment  = newPayRaw === '' ? null : parseFloat(newPayRaw);
-  if (!date) { alert('Please select a date.'); return; }
+  if (!date) { PortfolioUI.toast('Please select a date.', { type: 'error' }); return; }
   if (type !== 'note' && (value == null || isNaN(value))) {
-    alert('Please enter a value.'); return;
+    PortfolioUI.toast('Please enter a value.', { type: 'error' }); return;
   }
 
   const acc = accounts.find(a => a.id === accId);
@@ -479,7 +521,8 @@ function saveKeypoint() {
   const data = { date, type, value: value || 0, note,
     ...(type === 'rate_change' && acc.type === 'loan' ? { paymentMode, newPayment } : {}) };
 
-  if (editingKpId) {
+  const isEditing = !!editingKpId;
+  if (isEditing) {
     const kp = acc.keypoints.find(k => k.id === editingKpId);
     if (kp) Object.assign(kp, data);
   } else {
@@ -487,13 +530,18 @@ function saveKeypoint() {
   }
   editingKpId = null;
   save(); closeModal('keypoint-modal'); renderSidebar(); redraw();
+  PortfolioUI.toast(isEditing ? 'Event updated' : 'Event added', { type: 'success' });
 }
 
 function deleteKeypoint(accId, kpId) {
-  const acc = accounts.find(a => a.id === accId);
-  if (!acc) return;
-  acc.keypoints = acc.keypoints.filter(k => k.id !== kpId);
-  save(); renderSidebar(); redraw();
+  PortfolioUI.confirm('Remove this event?', { okText: 'Remove', danger: true }).then(ok => {
+    if (!ok) return;
+    const acc = accounts.find(a => a.id === accId);
+    if (!acc) return;
+    acc.keypoints = acc.keypoints.filter(k => k.id !== kpId);
+    save(); renderSidebar(); redraw();
+    PortfolioUI.toast('Event removed', { type: 'success' });
+  });
 }
 
 // ─── Modal helpers ────────────────────────────────────────────────────────────
@@ -532,6 +580,14 @@ function bindFinanceEvents() {
     if (btn.dataset.action === 'delete-account') deleteAccount(accountId);
     if (btn.dataset.action === 'edit-keypoint') editKeypoint(accountId, btn.dataset.keypointId);
     if (btn.dataset.action === 'delete-keypoint') deleteKeypoint(accountId, btn.dataset.keypointId);
+    if (btn.dataset.action === 'load-sample') loadSamplePortfolio();
+  });
+
+  // Esc closes any open modal
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    const open = document.querySelector('.modal-overlay.open');
+    if (open) { e.preventDefault(); open.classList.remove('open'); }
   });
 }
 
